@@ -4,11 +4,11 @@ engines:
   standard:                               # Engine used for standard chess and when no suitable special engine is configured.
     dir: "./engines"                      # Directory containing the engine.
     name: "stockfish"             # Binary name of the engine to use.
-    ponder: true                          # Think on opponent's time.
+    ponder: false                         # Think on opponent's time.
     silence_stderr: false                 # Suppresses stderr output.
     move_overhead_multiplier: 1.0         # Increase if your bot flags games too often. Default move overhead is 1 second per 1 minute initital time.
     uci_options:                          # Arbitrary UCI options passed to the engine.
-      Threads: 3                          # Max CPU threads the engine can use.
+      Threads: 1                          # Max CPU threads the engine can use.
       Hash: 256                           # Max memory (in megabytes) the engine can allocate.
       Move Overhead: 200                  # Increase if your bot flags games too often.
     limits:                               # Limits that end the move calculation early.
@@ -144,9 +144,9 @@ resign:
 # min_rating: 2300                        # Minimum rating of opponent to resign.
 
 challenge:                                # Incoming challenges.
-  concurrency: 11                          # Number of games to play simultaneously.
+  concurrency: 4                           # Number of games to play simultaneously.
   max_takebacks: 3                        # Maximum number of takebacks granted to a human.
-  bullet_with_increment_only: false       # Whether bullet games against BOTs should only be accepted with increment.
+  bullet_with_increment_only: true        # Whether bullet games against BOTs should only be accepted with increment.
 # min_increment: 0                        # Minimum amount of increment to accept a challenge.
 # max_increment: 180                      # Maximum amount of increment to accept a challenge.
 # min_initial: 0                          # Minimum amount of initial time to accept a challenge.
