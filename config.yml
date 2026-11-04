@@ -146,9 +146,9 @@ resign:
 challenge:                                # Incoming challenges.
   concurrency: 4                           # Number of games to play simultaneously.
   max_takebacks: 3                        # Maximum number of takebacks granted to a human.
-  bullet_with_increment_only: true        # Whether bullet games against BOTs should only be accepted with increment.
-# min_increment: 0                        # Minimum amount of increment to accept a challenge.
-# max_increment: 180                      # Maximum amount of increment to accept a challenge.
+  bullet_with_increment_only: false       # false = принимать пулю без добавки (30+0 и 60+0). true заблокировал бы их.
+  min_increment: 0                        # Минимальная добавка: 0 обязателен для 30+0 и 60+0.
+  max_increment: 180                      # Максимальная добавка.
 # min_initial: 0                          # Minimum amount of initial time to accept a challenge.
 # max_initial: 10800                      # Maximum amount of initial time to accept a challenge.
   variants:                               # Chess variants to accept (https://lichess.org/variant).
