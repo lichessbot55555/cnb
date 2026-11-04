@@ -187,6 +187,10 @@ matchmaking:
   types:                                  # Matchmaking types of which one is selected before each game.
     blitz:                                # Arbitrary name of the matchmaking type. Names must be unique.
       tc: 3+1                             # Time control in initial_minutes+increment_seconds format.
+    bullet_1_0:                           # 60+0, без добавки.
+      tc: 1+0
+    bullet_0_5_0:                         # 0.5 минуты = ровно 30+0, без добавки.
+      tc: 0.5+0
 #   casual_chess960:
 #     tc: 8+1
 #     rated: false
