@@ -1,48 +1,42 @@
 name: Lichess Bot Runner
 
-concurrency:
-  group: lichess-bot-runner
-  cancel-in-progress: true
+# Запускает BotLi для аккаунта BeliberdoZavr на GitHub Actions.
+# Перед запуском бота есть шаг Preflight: он проверяет токен и печатает
+# аккаунт, статус BOT и список прав — если что-то не так, в логе будет
+# понятная строка с ::error:: вместо молчаливого выхода с кодом 1.
 
 on:
   workflow_dispatch:
     inputs:
-      mode:
-        description: 'Bot Mode'
-        type: choice
-        required: true
-        options:
-          - normal
-          - matchmaking
-          - tournament
-      tournament_id:
-        description: 'Tournament ID (if tournament mode)'
+      command:
+        description: 'Команда для BotLi (пусто = matchmaking)'
         type: string
         required: false
-      team_id:
-        description: 'Team ID (optional)'
-        type: string
-        required: false
-      password:
-        description: 'Tournament password (optional)'
-        type: string
-        required: false
+        default: 'matchmaking'
   schedule:
-    - cron: '0 */6 * * *'  # every 6 hours
+    - cron: '0 */6 * * *'  # перезапуск каждые 6 часов
   push:
     branches: [ main ]
     paths:
       - '**.py'
       - 'config.yml'
+      - '.github/workflows/run.yml'
+
+concurrency:
+  group: lichess-bot-runner
+  cancel-in-progress: false
 
 permissions:
-  actions: write
-  contents: write
+  contents: read
+
+env:
+  BOT_USERNAME: BeliberdoZavr
+  RUN_SECONDS: '19800'   # 5.5 часа, меньше лимита GitHub
 
 jobs:
   bot-runner:
     runs-on: ubuntu-latest
-    timeout-minutes: 355  # restart just before GitHub limit
+    timeout-minutes: 340
 
     steps:
       - name: Checkout Repository
@@ -58,66 +52,79 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install tenacity pyyaml
 
       - name: Setup Engines
         run: |
           chmod +x engines/stockfish
-
+          ls -l engines
 
       - name: Inject Lichess Bot Token
         env:
           LICHESS_TOKEN: ${{ secrets.LICHESS_TOKEN }}
         run: |
           python3 << 'EOF'
-          import os, yaml
-          token = os.environ.get("LICHESS_TOKEN")
+          import os, sys, yaml
+          token = (os.environ.get("LICHESS_TOKEN") or "").strip()
           if not token:
-              print("ERROR: LICHESS_TOKEN secret is missing!")
-              exit(1)
-          with open("config.yml","r") as f:
+              print("::error::Секрет LICHESS_TOKEN пуст. Settings -> Secrets and variables -> Actions")
+              sys.exit(1)
+          with open("config.yml", "r") as f:
               config = yaml.safe_load(f) or {}
           config["token"] = token
-          with open("config.yml","w") as f:
-              yaml.dump(config,f, default_flow_style=False)
-          print("✅ Token injected successfully")
+          with open("config.yml", "w") as f:
+              yaml.dump(config, f, default_flow_style=False)
+          print("Токен подставлен в config.yml")
           EOF
 
-      - name: Launch Bot
+      - name: Preflight - validate token
+        env:
+          LICHESS_TOKEN: ${{ secrets.LICHESS_TOKEN }}
         run: |
-          CMD_BASE='python3 -u user_interface.py "matchmaking" "tournament H9R6QavB"'
-          MODE="${{ github.event.inputs.mode }}"
-          TOUR_ID="${{ github.event.inputs.tournament_id }}"
-          TEAM_ID="${{ github.event.inputs.team_id }}"
-          PASSWORD="${{ github.event.inputs.password }}"
+          python3 << 'EOF'
+          import json, os, sys, urllib.request
+          token = (os.environ.get("LICHESS_TOKEN") or "").strip()
+          req = urllib.request.Request(
+              "https://lichess.org/api/account",
+              headers={"Authorization": f"Bearer {token}"},
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  acc = json.load(r)
+          except Exception as e:
+              print(f"::error::Lichess отклонил токен: {e}")
+              sys.exit(1)
+          scopes = acc.get("scopes") or ""
+          print(f'account={acc.get("username")} title={acc.get("title")} scopes=[{scopes}]')
+          if "bot:play" not in scopes:
+              print("::error::У токена нет права bot:play. Создайте новый: https://lichess.org/account/oauth/token/create?scopes[]=bot:play&description=BotLi")
+              sys.exit(1)
+          if acc.get("title") != "BOT":
+              print("::error::Аккаунт не переведён в BOT. Сначала запустите BotLi с флагом --upgrade.")
+              sys.exit(1)
+          print("Preflight OK")
+          EOF
 
-          if [[ "$MODE" == "matchmaking" ]]; then
-              CMD="$CMD_BASE matchmaking"
-              echo "🤖 Running command: $CMD"
-              eval "$CMD"
-
-          elif [[ "$MODE" == "tournament" ]]; then
-              if [[ -z "$TOUR_ID" ]]; then
-                  echo "⚠️ Tournament ID missing. Skipping."
-              else
-                  # Construct CLI arguments correctly
-                  ARGS="4jYqxDPn"
-                  [[ -n "$TEAM_ID" ]] && ARGS="$ARGS $TEAM_ID"
-                  [[ -n "$PASSWORD" ]] && ARGS="$ARGS $PASSWORD"
-
-                  echo "🤖 Joining tournament: $ARGS"
-                  # pass tournament as real argument
-                  eval "$CMD_BASE \"tournament $ARGS\""
-              fi
-
-          else
-              echo "⚠️ Mode not recognized. Running normal mode."
-              eval "$CMD_BASE"
+      - name: Run Bot
+        run: |
+          CMD="${{ inputs.command }}"
+          if [ -z "$CMD" ]; then CMD="matchmaking"; fi
+          echo "Команда BotLi: $CMD"
+          set +e
+          timeout --signal=TERM --kill-after=60 "$RUN_SECONDS" python3 -u user_interface.py "$CMD"
+          RC=$?
+          set -e
+          if [ "$RC" -eq 124 ] || [ "$RC" -eq 143 ]; then
+            echo "Бот отработал запланированные 5.5 часа и остановлен (rc=$RC)"
+            exit 0
           fi
+          echo "::error::Бот завершился с кодом $RC"
+          exit "$RC"
 
-      - name: Auto-Restart After Timeout
-        run: |
-          BOT_PID=$!
-          ( sleep 20700 && echo "⏰ Time's up. Restarting bot..." && kill -SIGTERM $BOT_PID ) &
-          wait $BOT_PID
-          echo "Bot ended cleanly."  
+      - name: Upload game records
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: game-records-${{ github.run_number }}
+          path: game_records/
+          retention-days: 7
+          if-no-files-found: ignore
