@@ -83,24 +83,53 @@ jobs:
           python3 << 'EOF'
           import json, os, sys, urllib.request
           token = (os.environ.get("LICHESS_TOKEN") or "").strip()
-          req = urllib.request.Request(
+          if not token:
+              print("::error::Секрет LICHESS_TOKEN пуст")
+              sys.exit(1)
+
+          # Права токена читаем ровно так, как это делает сам BotLi:
+          # POST /api/token/test. Поле scopes в /api/account пустое,
+          # опираться на него нельзя.
+          test_req = urllib.request.Request(
+              "https://lichess.org/api/token/test",
+              data=token.encode(),
+              headers={"Content-Type": "text/plain"},
+              method="POST",
+          )
+          try:
+              with urllib.request.urlopen(test_req, timeout=30) as r:
+                  info = json.load(r).get(token)
+          except Exception as e:
+              print(f"::error::Не удалось проверить токен: {e}")
+              sys.exit(1)
+
+          if not info:
+              print("::error::Lichess считает токен недействительным (token/test вернул null). Создайте новый.")
+              sys.exit(1)
+
+          scopes = info.get("scopes") or ""
+          print(f'token userId={info.get("userId")} scopes=[{scopes}]')
+
+          if "bot:play" not in scopes:
+              print("::error::У токена нет права bot:play. Создайте новый: https://lichess.org/account/oauth/token/create?scopes[]=bot:play&description=BotLi")
+              sys.exit(1)
+
+          acc_req = urllib.request.Request(
               "https://lichess.org/api/account",
               headers={"Authorization": f"Bearer {token}"},
           )
           try:
-              with urllib.request.urlopen(req, timeout=30) as r:
+              with urllib.request.urlopen(acc_req, timeout=30) as r:
                   acc = json.load(r)
           except Exception as e:
               print(f"::error::Lichess отклонил токен: {e}")
               sys.exit(1)
-          scopes = acc.get("scopes") or ""
-          print(f'account={acc.get("username")} title={acc.get("title")} scopes=[{scopes}]')
-          if "bot:play" not in scopes:
-              print("::error::У токена нет права bot:play. Создайте новый: https://lichess.org/account/oauth/token/create?scopes[]=bot:play&description=BotLi")
-              sys.exit(1)
+
+          print(f'account={acc.get("username")} title={acc.get("title")}')
           if acc.get("title") != "BOT":
               print("::error::Аккаунт не переведён в BOT. Сначала запустите BotLi с флагом --upgrade.")
               sys.exit(1)
+
           print("Preflight OK")
           EOF
 
