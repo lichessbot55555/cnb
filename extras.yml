@@ -1,0 +1,13 @@
+# Add-ons for BotLi that do not go through its own config parser.
+# Delete this file to switch every add-on off.
+
+mistakes:                 # Remember positions where the bot blundered and never repeat them.
+  enabled: true
+  file: "mistakes.json"
+
+clock:                    # Take over the clock when little time is left.
+  enabled: true
+  low_time_threshold: 8.0 # Seconds on our clock at which the bot starts playing fast moves.
+  horizon: 30             # Spend about 1/horizon of the remaining clock per move.
+  min_time: 0.04          # Floor per move in seconds.
+  max_time: 0.25          # Ceiling per move in seconds.

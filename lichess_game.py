@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable, Iterable
 from itertools import islice
 from operator import itemgetter
 from typing import Any, Literal
+from dataclasses import replace
 
 import chess
 import chess.engine
@@ -156,6 +157,7 @@ class LichessGame:
     async def make_move(self) -> LichessMove:
         for move_source in self.move_sources:
             if move_response := await move_source():
+                move_response = self._avoid_remembered_mistake(move_response)
                 self.board.push(move_response.move)
                 await self.engine.start_pondering(self.board)
 
@@ -170,6 +172,10 @@ class LichessGame:
 
         move, info = await self.engine.make_move(self.board, *self.engine_times)
 
+        if (replacement := self._mistake_replacement(move)) is not None:
+            print(f"Avoiding a remembered mistake: {move.uci()} -> {replacement.uci()}")
+            move = replacement
+
         if "score" in info:
             self.scores.append(info["score"])
 
@@ -183,6 +189,23 @@ class LichessGame:
             await self.engine.start_pondering(self.board)
 
         return LichessMove(move.uci(), self._offer_draw(), self._resign())
+
+    def _mistake_replacement(self, move: chess.Move) -> chess.Move | None:
+        """Return the remembered better move for this position, or None."""
+        from mistake_book import get_mistake_book
+
+        book = get_mistake_book()
+        if book is None:
+            return None
+        return book.replacement(self.board, move)
+
+    def _avoid_remembered_mistake(self, move_response: MoveResponse) -> MoveResponse:
+        """Replace a move source move that is a remembered blunder."""
+        replacement = self._mistake_replacement(move_response.move)
+        if replacement is None:
+            return move_response
+        print(f"Avoiding a remembered mistake: {move_response.move.uci()} -> {replacement.uci()}")
+        return replace(move_response, move=replacement)
 
     def update(self, game_state_event: dict[str, Any]) -> bool:
         self.white_time = game_state_event["wtime"] / 1000

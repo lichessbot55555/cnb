@@ -27,7 +27,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   BOT_USERNAME: BeliberdoZavr
@@ -55,7 +55,22 @@ jobs:
 
       - name: Setup Engines
         run: |
+          set -euo pipefail
           chmod +x engines/stockfish
+          # Specialized variant engines: Atomic-Stockfish (~+150 Elo over Fairy) and
+          # Horde-Stockfish (~+350 Elo over Fairy) according to their author's panels.
+          for build in atomic-stockfish-linux-x86-64-bmi2 atomic-stockfish-linux-x86-64-avx2 atomic-stockfish-linux-x86-64-sse41-popcnt; do
+            if curl -fsSL --retry 3 -o engines/atomic-stockfish \
+               "https://github.com/Belzedar94/Atomic-Stockfish/releases/download/rolling-main/${build}"; then
+              chmod +x engines/atomic-stockfish && break
+            fi
+          done
+          curl -fsSL --retry 3 -o /tmp/horde.tar.xz \
+            "https://github.com/Belzedar94/Horde-Stockfish/releases/download/v1.0.0/Horde-Stockfish-1.0.0-linux-x86-64-bmi2.tar.xz"
+          rm -rf /tmp/horde && mkdir -p /tmp/horde && tar -xf /tmp/horde.tar.xz -C /tmp/horde
+          install -m 755 "$(find /tmp/horde -type f -name horde-stockfish | head -n1)" engines/horde-stockfish
+          printf 'uci\nquit\n' | ./engines/atomic-stockfish | grep -m1 'id name'
+          printf 'uci\nquit\n' | ./engines/horde-stockfish | grep -m1 'id name'
           ls -l engines
 
       - name: Inject Lichess Bot Token
@@ -148,6 +163,34 @@ jobs:
           fi
           echo "::error::Бот завершился с кодом $RC"
           exit "$RC"
+
+      - name: Learn from the games
+        if: always()
+        continue-on-error: true
+        run: |
+          python3 learn_mistakes.py \
+            --book mistakes.json \
+            --config config.yml \
+            --username "$BOT_USERNAME" \
+            --depth 12 --threshold 150 --max-games 40
+
+      - name: Commit the remembered mistakes
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ ! -f mistakes.json ]; then
+            echo "No mistake book to commit."
+            exit 0
+          fi
+          git config user.name "botli-bot"
+          git config user.email "botli-bot@users.noreply.github.com"
+          git add mistakes.json
+          if git diff --cached --quiet; then
+            echo "No new mistakes this session."
+            exit 0
+          fi
+          git commit -m "Remember new mistakes"
+          git push origin HEAD:main
 
       - name: Upload game records
         if: always()

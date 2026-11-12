@@ -98,12 +98,42 @@ class Engine:
             )
             ponder = self.ponder
 
+        low_time_limit = self._low_time_limit(board, white_time, black_time)
+        if low_time_limit is not None:
+            limit = low_time_limit
+            ponder = False
+
         result = await self.engine.play(board, limit, info=chess.engine.INFO_ALL, ponder=ponder)
 
         if not result.move:
             raise RuntimeError("Engine could not make a move!")
 
         return result.move, result.info
+
+    @staticmethod
+    def _low_time_limit(
+        board: chess.Board, white_time: float, black_time: float
+    ) -> chess.engine.Limit | None:
+        """Spend a fixed fraction of a short clock instead of trusting the engine clock.
+
+        Engines keep thinking in proportion to the clock they see and know nothing about the
+        network delay, so below `low_time_threshold` seconds the bot takes over and plays
+        fast moves until the game ends or the clock recovers.
+        """
+        import extras
+
+        settings = extras.section("clock")
+        if not settings.get("enabled"):
+            return None
+        remaining = white_time if board.turn == chess.WHITE else black_time
+        if remaining <= 0 or remaining > float(settings.get("low_time_threshold", 8.0)):
+            return None
+        horizon = max(1, int(settings.get("horizon", 30)))
+        move_time = remaining / horizon
+        move_time = max(move_time, float(settings.get("min_time", 0.04)))
+        move_time = min(move_time, float(settings.get("max_time", 0.25)))
+        move_time = max(0.015, min(move_time, remaining - 0.06))
+        return chess.engine.Limit(time=move_time)
 
     async def start_pondering(self, board: chess.Board) -> None:
         if self.ponder:
